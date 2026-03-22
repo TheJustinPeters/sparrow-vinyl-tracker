@@ -3,12 +3,9 @@ import { useState, useEffect, useRef } from "react";
 const SUPABASE_URL = "https://epnioudjbmodukgayupl.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVwbmlvdWRqYm1vZHVrZ2F5dXBsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQwNTMxODksImV4cCI6MjA4OTYyOTE4OX0.ls19ACjUbyf_mANOd83PiszDgURnRVD1tskeJSkDw_w";
 
-// ── ⚠️  Add your Anthropic API key here to enable AI features ────────────────
-// Get one at https://console.anthropic.com
-// NOTE: For production, route this through a backend proxy instead of
-// exposing the key in client-side code.
-const ANTHROPIC_API_KEY = "YOUR_ANTHROPIC_API_KEY_HERE";
-const AI_ENABLED = ANTHROPIC_API_KEY !== "YOUR_ANTHROPIC_API_KEY_HERE";
+// ── Anthropic proxy (Supabase Edge Function) ──────────────────────────────────
+// AI calls route through the Edge Function so the API key stays server-side.
+const ANTHROPIC_PROXY_URL = `${SUPABASE_URL}/functions/v1/anthropic-proxy`;
 
 // ── Auth ──────────────────────────────────────────────────────────
 const authApi = {
@@ -202,7 +199,7 @@ function ProfileSetup({ session, onSave }) {
 }
 
 // ── Photo Scan ────────────────────────────────────────────────────
-function PhotoScanModal({ onResult, onClose }) {
+function PhotoScanModal({ onResult, onClose, session }) {
   const [image, setImage] = useState(null);
   const [b64, setB64] = useState(null);
   const [mediaType, setMediaType] = useState("image/jpeg");
@@ -223,9 +220,9 @@ function PhotoScanModal({ onResult, onClose }) {
     if (!b64) return;
     setScanning(true); setError(null); setResult(null);
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const res = await fetch(ANTHROPIC_PROXY_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}`, apikey: SUPABASE_ANON_KEY },
         body: JSON.stringify({
           model: "claude-haiku-4-5-20251001",
           max_tokens: 1000,
@@ -239,18 +236,13 @@ function PhotoScanModal({ onResult, onClose }) {
       if (!res.ok) throw new Error(data.error?.message || "API error");
       setResult(JSON.parse(data.content?.find(x => x.type === "text")?.text.replace(/```json|```/g, "").trim()));
     } catch (e) {
-      setError(e.message?.includes("API key") ? "Invalid API key. Check the ANTHROPIC_API_KEY constant in App.jsx." : "Could not identify this record. Try a clearer photo or use manual entry.");
+      setError("Could not identify this record. Try a clearer photo, or check that your Edge Function is deployed.");
     }
     setScanning(false);
   };
 
   return (
     <Modal title="📷 Scan Album Cover" onClose={onClose}>
-      {!AI_ENABLED && (
-        <div style={{ background: "#2a2218", border: "1px solid #4a3a28", borderRadius: "8px", padding: "12px 14px", marginBottom: "16px", fontSize: "13px", color: "#c9a96e", lineHeight: 1.5 }}>
-          ⚠️ Photo scanning requires an Anthropic API key. Add yours to the <code style={{ background: "#111", padding: "1px 5px", borderRadius: "3px", fontSize: "12px" }}>ANTHROPIC_API_KEY</code> constant at the top of App.jsx.
-        </div>
-      )}
       <p style={{ fontSize: "13px", color: "#6a5a4a", margin: "0 0 16px", lineHeight: 1.5 }}>Point your camera at the album cover or record label. Claude will read it and pre-fill the form.</p>
       <div style={{ display: "flex", gap: "8px", marginBottom: "14px" }}>
         <button onClick={() => fileRef.current.click()} style={{ ...b("#1e1e1e", "#c9a96e"), flex: 1, padding: "10px", border: "1px solid #3a3a2a" }}>🖼 Choose Photo</button>
@@ -260,8 +252,8 @@ function PhotoScanModal({ onResult, onClose }) {
       </div>
       {image && <div style={{ marginBottom: "14px", textAlign: "center" }}><img src={image} alt="" style={{ maxWidth: "100%", maxHeight: "220px", borderRadius: "8px", border: "1px solid #2a2a2a", objectFit: "contain" }} /></div>}
       {image && !scanning && !result && (
-        <button onClick={scan} disabled={!AI_ENABLED} style={{ ...b(AI_ENABLED ? "linear-gradient(135deg,#c9a96e,#b8924a)" : "#2a2a2a", AI_ENABLED ? "#1a1a1a" : "#555"), width: "100%", padding: "12px", fontSize: "14px", marginBottom: "10px", opacity: AI_ENABLED ? 1 : 0.6, cursor: AI_ENABLED ? "pointer" : "not-allowed" }}>
-          🔍 {AI_ENABLED ? "Identify This Record" : "API Key Required"}
+        <button onClick={scan} style={{ ...b("linear-gradient(135deg,#c9a96e,#b8924a)", "#1a1a1a"), width: "100%", padding: "12px", fontSize: "14px", marginBottom: "10px" }}>
+          🔍 Identify This Record
         </button>
       )}
       {scanning && <Spinner message="Identifying record..." />}
@@ -427,7 +419,7 @@ function AddEditModal({ record, onSave, onClose, profiles, session }) {
           <button onClick={onClose} style={b("#1a1a1a", "#555")}>Cancel</button>
         </div>
       </Modal>
-      {showScan && <PhotoScanModal onResult={applyScan} onClose={() => setShowScan(false)} />}
+      {showScan && <PhotoScanModal onResult={applyScan} onClose={() => setShowScan(false)} session={session} />}
     </>
   );
 }
@@ -604,7 +596,7 @@ function ThemeIdeas({ records }) {
 }
 
 // ── Vinyl Guru ────────────────────────────────────────────────────
-function VinylGuru({ records }) {
+function VinylGuru({ records, session }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [typing, setTyping] = useState(false);
@@ -618,7 +610,7 @@ function VinylGuru({ records }) {
   ];
 
   const send = async (text) => {
-    if (!text.trim() || typing || !AI_ENABLED) return;
+    if (!text.trim() || typing) return;
     const userMsg = { role: "user", content: text.trim() };
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
@@ -639,13 +631,12 @@ Records marked "at Sparrow" are physically at the wine bar and available to play
 Be conversational, enthusiastic about music and wine, and keep responses concise and practical. Occasionally weave in thoughtful wine pairing suggestions. When building playlists, reference the actual records in the collection.`;
 
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const res = await fetch(ANTHROPIC_PROXY_URL, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-api-key": ANTHROPIC_API_KEY,
-          "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-direct-browser-access": "true",
+          Authorization: `Bearer ${session.access_token}`,
+          apikey: SUPABASE_ANON_KEY,
         },
         body: JSON.stringify({
           model: "claude-haiku-4-5-20251001",
@@ -678,7 +669,7 @@ Be conversational, enthusiastic about music and wine, and keep responses concise
       {messages.length === 0 && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "16px" }}>
           {starters.map(s => (
-            <button key={s} onClick={() => send(s)} disabled={!AI_ENABLED} style={{ ...b("#1e1e1e", AI_ENABLED ? "#c9a96e" : "#444"), border: `1px solid ${AI_ENABLED ? "#3a3020" : "#2a2a2a"}`, padding: "8px 12px", fontSize: "12px", textAlign: "left", cursor: AI_ENABLED ? "pointer" : "not-allowed" }}>{s}</button>
+            <button key={s} onClick={() => send(s)} style={{ ...b("#1e1e1e", "#c9a96e"), border: "1px solid #3a3020", padding: "8px 12px", fontSize: "12px", textAlign: "left" }}>{s}</button>
           ))}
         </div>
       )}
@@ -719,27 +710,20 @@ Be conversational, enthusiastic about music and wine, and keep responses concise
         <div ref={bottomRef} />
       </div>
 
-      {/* API key warning */}
-      {!AI_ENABLED && (
-        <div style={{ background: "#2a2218", border: "1px solid #4a3a28", borderRadius: "8px", padding: "10px 12px", marginBottom: "8px", fontSize: "12px", color: "#c9a96e", lineHeight: 1.5 }}>
-          ⚠️ Add your Anthropic API key to the <code style={{ background: "#111", padding: "1px 4px", borderRadius: "3px" }}>ANTHROPIC_API_KEY</code> constant at the top of App.jsx to enable the Vinyl Guru.
-        </div>
-      )}
-
       {/* Input */}
       <div style={{ display: "flex", gap: "8px" }}>
         <input
           style={{ ...inp, flex: 1 }}
-          placeholder={AI_ENABLED ? "Ask the Guru anything..." : "Anthropic API key required"}
+          placeholder="Ask the Guru anything..."
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); } }}
-          disabled={!AI_ENABLED || typing}
+          disabled={typing}
         />
         <button
           onClick={() => send(input)}
-          disabled={!AI_ENABLED || typing || !input.trim()}
-          style={{ ...b(AI_ENABLED && input.trim() && !typing ? "linear-gradient(135deg,#c9a96e,#b8924a)" : "#1e1e1e", AI_ENABLED && input.trim() && !typing ? "#1a1a1a" : "#444"), padding: "10px 18px", opacity: (!AI_ENABLED || !input.trim() || typing) ? 0.5 : 1 }}
+          disabled={typing || !input.trim()}
+          style={{ ...b(input.trim() && !typing ? "linear-gradient(135deg,#c9a96e,#b8924a)" : "#1e1e1e", input.trim() && !typing ? "#1a1a1a" : "#444"), padding: "10px 18px", opacity: (!input.trim() || typing) ? 0.5 : 1 }}
         >
           {typing ? "..." : "Send"}
         </button>
@@ -923,7 +907,7 @@ export default function App() {
             )}
             {tab === "history" && <History records={records} nights={nights} onSave={saveNight} onDelete={deleteNight} />}
             {tab === "themes" && <ThemeIdeas records={records} />}
-            {tab === "guru" && <VinylGuru records={records} />}
+            {tab === "guru" && <VinylGuru records={records} session={session} />}
           </>
         )}
       </div>
