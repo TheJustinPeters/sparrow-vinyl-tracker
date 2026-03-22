@@ -48,17 +48,17 @@ function makeDb(token) {
     },
     async insert(table, row) {
       const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, { method: "POST", headers: { ...h, Prefer: "return=representation" }, body: JSON.stringify(row) });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) { const t = await res.text(); try { const j = JSON.parse(t); throw new Error(`[${table}] ${j.message || j.error || t}`); } catch(e2) { if (e2.message.startsWith("[")) throw e2; throw new Error(`[${table}] ${t}`); } }
       return (await res.json())[0];
     },
     async update(table, id, row) {
       const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${id}`, { method: "PATCH", headers: { ...h, Prefer: "return=representation" }, body: JSON.stringify(row) });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) { const t = await res.text(); try { const j = JSON.parse(t); throw new Error(`[${table}] ${j.message || j.error || t}`); } catch(e2) { if (e2.message.startsWith("[")) throw e2; throw new Error(`[${table}] ${t}`); } }
       return (await res.json())[0];
     },
     async remove(table, id) {
       const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${id}`, { method: "DELETE", headers: h });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) { const t = await res.text(); try { const j = JSON.parse(t); throw new Error(`[${table}] ${j.message || j.error || t}`); } catch(e2) { if (e2.message.startsWith("[")) throw e2; throw new Error(`[${table}] ${t}`); } }
     },
     async uploadImage(file) {
       const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
