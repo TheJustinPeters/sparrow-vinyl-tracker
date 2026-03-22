@@ -795,8 +795,9 @@ export default function App() {
       status: form.status,
       notes: form.notes,
       image_url: imageUrl,
-      owner_id: form.owner_id || myProfile?.id || null,
     };
+    // owner_id excluded until FK constraint is dropped in Supabase
+    const ownerId = form.owner_id || myProfile?.id || null;
     if (editRec) {
       const u = await getDb().update("records", editRec.id, payload);
       setRecords(p => p.map(r => r.id === editRec.id ? u : r));
