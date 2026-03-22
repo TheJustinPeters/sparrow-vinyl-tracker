@@ -227,7 +227,7 @@ function PhotoScanModal({ onResult, onClose }) {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
+          model: "claude-haiku-4-5-20251001",
           max_tokens: 1000,
           messages: [{ role: "user", content: [
             { type: "image", source: { type: "base64", media_type: mediaType, data: b64 } },
@@ -648,7 +648,7 @@ Be conversational, enthusiastic about music and wine, and keep responses concise
           "anthropic-dangerous-direct-browser-access": "true",
         },
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
+          model: "claude-haiku-4-5-20251001",
           max_tokens: 1024,
           system: systemPrompt,
           messages: newMessages.map(m => ({ role: m.role, content: m.content })),
