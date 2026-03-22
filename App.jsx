@@ -233,7 +233,7 @@ function PhotoScanModal({ onResult, onClose, session }) {
         })
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error?.message || "API error");
+      if (!res.ok) throw new Error(data.error?.message || data.message || `Proxy error ${res.status}`);
       setResult(JSON.parse(data.content?.find(x => x.type === "text")?.text.replace(/```json|```/g, "").trim()));
     } catch (e) {
       setError("Could not identify this record. Try a clearer photo, or check that your Edge Function is deployed.");
@@ -290,6 +290,7 @@ function AddEditModal({ record, onSave, onClose, profiles, session }) {
   const [dq, setDq] = useState(""); const [dr, setDr] = useState([]); const [dl, setDl] = useState(false);
   const [tab, setTab] = useState("manual"); const [showScan, setShowScan] = useState(false); const [saving, setSaving] = useState(false);
   const [autoFilled, setAutoFilled] = useState(false);
+  const [saveError, setSaveError] = useState(null);
   const imgFileRef = useRef();
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -329,9 +330,13 @@ function AddEditModal({ record, onSave, onClose, profiles, session }) {
 
   const save = async () => {
     if (!form.title || !form.artist) return;
-    setSaving(true);
-    await onSave({ ...form, _imageFile: imageFile });
-    setSaving(false);
+    setSaving(true); setSaveError(null);
+    try {
+      await onSave({ ...form, _imageFile: imageFile });
+    } catch (e) {
+      setSaveError(e.message || "Failed to save. Please try again.");
+      setSaving(false);
+    }
   };
 
   return (
@@ -414,6 +419,11 @@ function AddEditModal({ record, onSave, onClose, profiles, session }) {
         )}
 
         <Field label="Notes"><textarea style={{ ...inp, minHeight: "70px", resize: "vertical" }} value={form.notes} onChange={e => set("notes", e.target.value)} placeholder="Condition, mood, listening hour notes..." /></Field>
+        {saveError && (
+          <div style={{ background: "#2a1818", border: "1px solid #4a2a2a", borderRadius: "8px", padding: "10px 12px", marginBottom: "8px", fontSize: "13px", color: "#d5a8a8", lineHeight: 1.4 }}>
+            ⚠️ {saveError}
+          </div>
+        )}
         <div style={{ display: "flex", gap: "8px", marginTop: "6px" }}>
           <button onClick={save} disabled={saving || !form.title || !form.artist} style={{ ...b("linear-gradient(135deg,#c9a96e,#b8924a)", "#1a1a1a"), flex: 1, padding: "12px", fontSize: "14px", opacity: (saving || !form.title || !form.artist) ? 0.7 : 1, cursor: (saving || !form.title || !form.artist) ? "not-allowed" : "pointer" }}>{saving ? "Saving..." : record ? "Save Changes" : "Add to Collection"}</button>
           <button onClick={onClose} style={b("#1a1a1a", "#555")}>Cancel</button>
@@ -646,11 +656,11 @@ Be conversational, enthusiastic about music and wine, and keep responses concise
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error?.message || "API error");
+      if (!res.ok) throw new Error(data.error?.message || data.message || `Proxy error ${res.status}`);
       const reply = data.content?.find(x => x.type === "text")?.text || "I couldn't come up with anything — try asking again!";
       setMessages(m => [...m, { role: "assistant", content: reply }]);
     } catch (e) {
-      setMessages(m => [...m, { role: "assistant", content: `Something went wrong: ${e.message}. Check your API key and try again.` }]);
+      setMessages(m => [...m, { role: "assistant", content: `Something went wrong: ${e.message}. Check the Edge Function logs in Supabase for details.` }]);
     }
     setTyping(false);
   };
@@ -773,31 +783,29 @@ export default function App() {
   const needsProfileSetup = session && !loading && profiles.length >= 0 && !myProfile;
 
   const saveRecord = async form => {
-    try {
-      let imageUrl = form.image_url || null;
-      // Upload file if one was selected
-      if (form._imageFile) {
-        imageUrl = await getDb().uploadImage(form._imageFile);
-      }
-      const payload = {
-        title: form.title,
-        artist: form.artist,
-        genre: form.genre,
-        year: form.year,
-        status: form.status,
-        notes: form.notes,
-        image_url: imageUrl,
-        owner_id: form.owner_id || myProfile?.id || null,
-      };
-      if (editRec) {
-        const u = await getDb().update("records", editRec.id, payload);
-        setRecords(p => p.map(r => r.id === editRec.id ? u : r));
-      } else {
-        const c = await getDb().insert("records", { ...payload, added_by: myProfile?.display_name || session.user?.email || null });
-        setRecords(p => [...p, c]);
-      }
-      setShowAdd(false); setEditRec(null);
-    } catch (e) { setError(`Failed to save record: ${e.message}`); }
+    let imageUrl = form.image_url || null;
+    if (form._imageFile) {
+      imageUrl = await getDb().uploadImage(form._imageFile);
+    }
+    const payload = {
+      title: form.title,
+      artist: form.artist,
+      genre: form.genre,
+      year: form.year,
+      status: form.status,
+      notes: form.notes,
+      image_url: imageUrl,
+      owner_id: form.owner_id || myProfile?.id || null,
+    };
+    if (editRec) {
+      const u = await getDb().update("records", editRec.id, payload);
+      setRecords(p => p.map(r => r.id === editRec.id ? u : r));
+    } else {
+      const c = await getDb().insert("records", { ...payload, added_by: myProfile?.display_name || session.user?.email || null });
+      setRecords(p => [...p, c]);
+    }
+    setShowAdd(false); setEditRec(null);
+    // Errors propagate up to AddEditModal which displays them inline
   };
 
   const toggleLocation = async (id, currentStatus) => {
