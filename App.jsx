@@ -74,7 +74,22 @@ function makeDb(token) {
   };
 }
 
-const GENRES = ["Jazz", "Soul", "R&B", "Blues", "Classical", "Rock", "Folk", "Bossa Nova", "Funk", "Electronic", "World", "Pop", "Country", "Other"];
+const GENRES = ["Afrobeat", "Alternative", "Ambient", "Blues", "Bluegrass", "Bossa Nova", "Classical", "Country", "Disco", "Electronic", "Folk", "Funk", "Gospel", "Hip Hop", "House", "Indie", "Jazz", "Latin", "Metal", "New Wave", "Pop", "Psychedelic", "Punk", "R&B", "Reggae", "Rock", "Soul", "Spoken Word", "World", "Other"];
+
+// ── Module-level helpers ───────────────────────────────────────────
+const albumKey = r => `${(r.title || "").toLowerCase()}|||${(r.artist || "").toLowerCase()}`;
+
+async function generateSynopsis(title, artist, year, genre, accessToken) {
+  const prompt = `Write a short, punchy 3–5 sentence blurb about the vinyl record "${title}" by ${artist}${year ? ` (${year})` : ""}${genre ? `, ${genre}` : ""}. Lead with where it sits in the artist's discography (debut, sophomore, tenth album, etc.) if known. Pack in 2–3 genuinely interesting facts — awards, chart moments, a breakout track, a behind-the-scenes detail, or why it matters. Keep it warm and conversational, like a knowledgeable friend at a record shop. No headers, no bullet points, no padding.`;
+  const res = await fetch(ANTHROPIC_PROXY_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}`, apikey: SUPABASE_ANON_KEY },
+    body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 250, messages: [{ role: "user", content: prompt }] }),
+  });
+  if (!res.ok) throw new Error("Synopsis failed");
+  const data = await res.json();
+  return data.content?.find(x => x.type === "text")?.text?.trim() || null;
+}
 
 // ── Shared UI ─────────────────────────────────────────────────────
 function Badge({ children, color }) {
@@ -86,8 +101,8 @@ const inp = { width: "100%", background: "#111", border: "1px solid #2e2e2e", bo
 
 function Modal({ title, onClose, children }) {
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "20px" }} onClick={onClose}>
-      <div style={{ background: "#1a1a1a", border: "1px solid #333", borderRadius: "16px", padding: "28px", maxWidth: "540px", width: "100%", maxHeight: "90vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", display: "flex", alignItems: "flex-start", justifyContent: "center", zIndex: 1000, padding: "20px", paddingBottom: "calc(20px + env(safe-area-inset-bottom, 0px))", overflowY: "auto", WebkitOverflowScrolling: "touch" }} onClick={onClose}>
+      <div style={{ background: "#1a1a1a", border: "1px solid #333", borderRadius: "16px", padding: "28px", paddingBottom: "calc(28px + env(safe-area-inset-bottom, 0px))", maxWidth: "540px", width: "100%", marginTop: "auto", marginBottom: "auto", flexShrink: 0 }} onClick={e => e.stopPropagation()}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
           <h2 style={{ fontFamily: "'Playfair Display',serif", color: "#f0e6d3", margin: 0, fontSize: "20px" }}>{title}</h2>
           <button onClick={onClose} style={{ background: "none", border: "none", color: "#555", fontSize: "20px", cursor: "pointer" }}>✕</button>
@@ -198,6 +213,66 @@ function ProfileSetup({ session, onSave }) {
   );
 }
 
+// ── Edit Profile Modal ────────────────────────────────────────────
+const AVATAR_EMOJIS = ["👤","🎸","🎺","🎷","🥁","🎻","🎹","🎵","🎶","🎤","🎧","🍷","🎼","🎙️","🪗","🪘","🪕","🌙","⭐","🦋","🌿","🔥","🎭","🎨","🦊","🐦","🌊","🍂","☕","🎯"];
+
+function EditProfileModal({ profile, session, onSave, onClose }) {
+  const [name, setName] = useState(profile.display_name || "");
+  const [emoji, setEmoji] = useState(profile.avatar_emoji || "👤");
+  const [bio, setBio] = useState(profile.bio || "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+
+  const save = async () => {
+    if (!name.trim()) return;
+    setSaving(true); setError(null);
+    try {
+      const db = makeDb(session.access_token);
+      const updated = await db.update("profiles", profile.id, {
+        display_name: name.trim(),
+        avatar_emoji: emoji,
+        bio: bio.trim() || null,
+      });
+      onSave(updated);
+    } catch (e) {
+      setError(e.message || "Failed to save profile.");
+    }
+    setSaving(false);
+  };
+
+  return (
+    <Modal title="Edit Your Profile" onClose={onClose}>
+      {error && <div style={{ background: "#2a1818", border: "1px solid #4a2a2a", borderRadius: "8px", padding: "10px 12px", marginBottom: "16px", fontSize: "13px", color: "#d5a8a8" }}>{error}</div>}
+
+      {/* Avatar emoji picker */}
+      <div style={{ marginBottom: "20px" }}>
+        <div style={{ fontSize: "11px", fontWeight: "600", color: "#7a6a5a", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "10px" }}>Your Avatar</div>
+        <div style={{ display: "flex", alignItems: "center", gap: "14px", marginBottom: "12px" }}>
+          <div style={{ width: "56px", height: "56px", borderRadius: "50%", background: "#222", border: "2px solid #c9a96e", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "28px" }}>{emoji}</div>
+          <div style={{ fontSize: "12px", color: "#555" }}>Pick one below</div>
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+          {AVATAR_EMOJIS.map(e => (
+            <button key={e} onClick={() => setEmoji(e)} style={{ width: "36px", height: "36px", borderRadius: "8px", border: `2px solid ${emoji === e ? "#c9a96e" : "#222"}`, background: emoji === e ? "#2a2018" : "#1a1a1a", fontSize: "18px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "border-color 0.15s" }}>{e}</button>
+          ))}
+        </div>
+      </div>
+
+      <Field label="Display Name">
+        <input style={inp} value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === "Enter" && save()} placeholder="Your name..." />
+      </Field>
+      <Field label="Bio (optional)">
+        <input style={inp} value={bio} onChange={e => setBio(e.target.value)} placeholder="e.g. Jazz purist · Orlando" maxLength={80} />
+        <div style={{ fontSize: "10px", color: "#3a3a3a", marginTop: "4px", textAlign: "right" }}>{bio.length}/80</div>
+      </Field>
+
+      <button onClick={save} disabled={saving || !name.trim()} style={{ width: "100%", padding: "12px", background: "linear-gradient(135deg,#c9a96e,#b8924a)", color: "#1a1a1a", border: "none", borderRadius: "8px", fontWeight: "700", fontSize: "14px", cursor: (saving || !name.trim()) ? "not-allowed" : "pointer", opacity: (saving || !name.trim()) ? 0.7 : 1, marginTop: "8px" }}>
+        {saving ? "Saving..." : "Save Profile"}
+      </button>
+    </Modal>
+  );
+}
+
 // ── Photo Scan ────────────────────────────────────────────────────
 function PhotoScanModal({ onResult, onClose, session }) {
   const [image, setImage] = useState(null);
@@ -228,7 +303,7 @@ function PhotoScanModal({ onResult, onClose, session }) {
           max_tokens: 1000,
           messages: [{ role: "user", content: [
             { type: "image", source: { type: "base64", media_type: mediaType, data: b64 } },
-            { type: "text", text: `Identify the vinyl record or album cover. Return ONLY JSON, no markdown:\n{"title":"","artist":"","year":"","genre":"one of: Jazz, Soul, R&B, Blues, Classical, Rock, Folk, Bossa Nova, Funk, Electronic, World, Pop, Country, Other","confidence":"high|medium|low","notes":""}` }
+            { type: "text", text: `Identify the vinyl record or album cover. Return ONLY JSON, no markdown:\n{"title":"","artist":"","year":"","genre":"one of: Afrobeat, Alternative, Ambient, Blues, Bluegrass, Bossa Nova, Classical, Country, Disco, Electronic, Folk, Funk, Gospel, Hip Hop, House, Indie, Jazz, Latin, Metal, New Wave, Pop, Psychedelic, Punk, R&B, Reggae, Rock, Soul, Spoken Word, World, Other","confidence":"high|medium|low","notes":""}` }
           ]}]
         })
       });
@@ -279,8 +354,43 @@ function PhotoScanModal({ onResult, onClose, session }) {
   );
 }
 
+// ── Genre Autocomplete ────────────────────────────────────────────
+function GenreInput({ value, onChange, dbGenres = [] }) {
+  const [open, setOpen] = useState(false);
+  const allGenres = [...new Set([...GENRES, ...dbGenres])].sort((a, b) => a.localeCompare(b));
+  const filtered = value
+    ? allGenres.filter(g => g.toLowerCase().includes(value.toLowerCase()))
+    : allGenres;
+
+  return (
+    <div style={{ position: "relative" }}>
+      <input
+        style={inp}
+        value={value}
+        placeholder="e.g. Jazz, Hip Hop…"
+        onChange={e => { onChange(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+      />
+      {open && filtered.length > 0 && (
+        <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, background: "#1a1a1a", border: "1px solid #333", borderRadius: "8px", maxHeight: "200px", overflowY: "auto", zIndex: 200, boxShadow: "0 8px 24px rgba(0,0,0,0.6)" }}>
+          {filtered.map(g => (
+            <div
+              key={g}
+              onMouseDown={() => { onChange(g); setOpen(false); }}
+              style={{ padding: "9px 14px", fontSize: "13px", color: g === value ? "#c9a96e" : "#f0e6d3", cursor: "pointer", background: g === value ? "#2a2018" : "transparent", borderBottom: "1px solid #222" }}
+              onMouseEnter={e => e.currentTarget.style.background = "#252525"}
+              onMouseLeave={e => e.currentTarget.style.background = g === value ? "#2a2018" : "transparent"}
+            >{g}</div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Add / Edit Modal ──────────────────────────────────────────────
-function AddEditModal({ record, onSave, onClose, profiles, session }) {
+function AddEditModal({ record, onSave, onClose, profiles, session, dbGenres }) {
   const [form, setForm] = useState(record
     ? { title: record.title || "", artist: record.artist || "", genre: record.genre || "", year: record.year || "", status: record.status || "home", notes: record.notes || "", image_url: record.image_url || "", owner_id: record.owner_id || "" }
     : { title: "", artist: "", genre: "", year: "", status: "home", notes: "", image_url: "", owner_id: session?.user?.id || "" }
@@ -389,7 +499,7 @@ function AddEditModal({ record, onSave, onClose, profiles, session }) {
         <Field label="Album Title *"><input style={inp} value={form.title} onChange={e => set("title", e.target.value)} placeholder="e.g. Kind of Blue" /></Field>
         <Field label="Artist *"><input style={inp} value={form.artist} onChange={e => set("artist", e.target.value)} placeholder="e.g. Miles Davis" /></Field>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-          <Field label="Genre"><select style={inp} value={form.genre} onChange={e => set("genre", e.target.value)}><option value="">Select...</option>{GENRES.map(g => <option key={g}>{g}</option>)}</select></Field>
+          <Field label="Genre"><GenreInput value={form.genre} onChange={v => set("genre", v)} dbGenres={dbGenres} /></Field>
           <Field label="Year"><input style={inp} value={form.year} onChange={e => set("year", e.target.value)} placeholder="e.g. 1959" maxLength={4} /></Field>
         </div>
         <Field label="Location">
@@ -400,25 +510,27 @@ function AddEditModal({ record, onSave, onClose, profiles, session }) {
           </div>
         </Field>
 
-        {/* Owner Picker */}
+        {/* Owner Picker — only Sparrow Wine Bar and the logged-in user */}
         {profiles && profiles.length > 0 && (
           <Field label="Owned By">
             <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-              {profiles.map(p => {
-                const isMe = p.id === session?.user?.id;
-                const isSparrow = p.display_name === "Sparrow Wine Bar";
-                const selected = form.owner_id === p.id;
-                return (
-                  <button key={p.id} onClick={() => set("owner_id", p.id)} style={{ ...b(selected ? "#c9a96e" : "#1e1e1e", selected ? "#1a1a1a" : "#888"), border: `1px solid ${selected ? "#c9a96e" : "#2a2a2a"}`, padding: "7px 12px", fontSize: "12px" }}>
-                    {isSparrow ? "🍷" : "👤"} {isMe ? `Me — ${p.display_name}` : p.display_name}
-                  </button>
-                );
-              })}
+              {profiles
+                .filter(p => p.id === session?.user?.id || p.display_name === "Sparrow Wine Bar")
+                .map(p => {
+                  const isMe = p.id === session?.user?.id;
+                  const isSparrow = p.display_name === "Sparrow Wine Bar";
+                  const selected = form.owner_id === p.id;
+                  return (
+                    <button key={p.id} onClick={() => set("owner_id", p.id)} style={{ ...b(selected ? "#c9a96e" : "#1e1e1e", selected ? "#1a1a1a" : "#888"), border: `1px solid ${selected ? "#c9a96e" : "#2a2a2a"}`, padding: "7px 12px", fontSize: "12px" }}>
+                      {isSparrow ? "🍷" : (p.avatar_emoji || "👤")} {isMe ? `Me — ${p.display_name}` : p.display_name}
+                    </button>
+                  );
+                })}
             </div>
           </Field>
         )}
 
-        <Field label="Notes"><textarea style={{ ...inp, minHeight: "70px", resize: "vertical" }} value={form.notes} onChange={e => set("notes", e.target.value)} placeholder="Condition, mood, listening hour notes..." /></Field>
+        <Field label="Notes"><textarea style={{ ...inp, minHeight: "70px", resize: "vertical" }} value={form.notes} onChange={e => set("notes", e.target.value)} placeholder="Condition, mood, aperitivo hour notes..." /></Field>
         {saveError && (
           <div style={{ background: "#2a1818", border: "1px solid #4a2a2a", borderRadius: "8px", padding: "10px 12px", marginBottom: "8px", fontSize: "13px", color: "#d5a8a8", lineHeight: 1.4 }}>
             ⚠️ {saveError}
@@ -466,7 +578,7 @@ function RecordCard({ record, onToggleLocation, onMarkPlayed, onEdit, onDelete, 
                 <Badge color={atSparrow ? "sparrow" : "home"}>{atSparrow ? "At Sparrow 🍷" : "At Home 🏠"}</Badge>
                 {record.genre && <span style={{ fontSize: "11px", color: "#6a5a4a", background: "#222", padding: "2px 8px", borderRadius: "20px" }}>{record.genre}</span>}
                 {record.year && <span style={{ fontSize: "11px", color: "#6a5a4a", background: "#222", padding: "2px 8px", borderRadius: "20px" }}>{record.year}</span>}
-                {record.last_played && <Badge color="recent">Played at Listening Hour</Badge>}
+                {record.last_played && <Badge color="recent">Played at Aperitivo Hour</Badge>}
                 {ownerProfile && <span style={{ fontSize: "11px", color: "#5a4a3a", background: "#1a1a1a", border: "1px solid #2a2a2a", padding: "2px 8px", borderRadius: "20px" }}>{ownerIsSparrow ? "🍷" : "👤"} {ownerProfile.display_name}</span>}
               </div>
             </div>
@@ -495,6 +607,396 @@ function RecordCard({ record, onToggleLocation, onMarkPlayed, onEdit, onDelete, 
   );
 }
 
+// ── Grouped Album Card ────────────────────────────────────────────
+// One card per unique album (title+artist). Each copy/owner is a sub-row.
+function GroupedAlbumCard({ copies, myProfile, profiles, onToggleLocation, onMarkPlayed, onEdit, onDelete, onAddMyCopy, onOpenProfile, profileView = false }) {
+  const [open, setOpen] = useState(false);
+  const rep = copies[0]; // representative copy for artwork & metadata
+  const sparrowCopies = copies.filter(c => c.status === "at_sparrow");
+  const homeCopies = copies.filter(c => c.status === "home");
+  const iAlreadyHaveIt = myProfile && copies.some(c => c.owner_id === myProfile.id);
+
+  return (
+    <div
+      style={{ background: "linear-gradient(135deg,#1a1a1a,#202020)", border: "1px solid #2a2a2a", borderRadius: "12px", padding: "16px", transition: "border-color 0.2s", position: "relative", overflow: "hidden" }}
+      onMouseEnter={e => e.currentTarget.style.borderColor = "#c9a96e"}
+      onMouseLeave={e => e.currentTarget.style.borderColor = "#2a2a2a"}
+    >
+      {/* Vinyl ring decorations */}
+      <div style={{ position: "absolute", top: "-22px", right: "-22px", width: "84px", height: "84px", borderRadius: "50%", border: "1px solid #242424", pointerEvents: "none" }} />
+      <div style={{ position: "absolute", top: "-6px", right: "-6px", width: "52px", height: "52px", borderRadius: "50%", border: "1px solid #242424", pointerEvents: "none" }} />
+
+      {/* Main row — click to expand */}
+      <div style={{ display: "flex", gap: "12px", alignItems: "flex-start", cursor: "pointer" }} onClick={() => setOpen(o => !o)}>
+        {/* Thumbnail */}
+        <div style={{ flexShrink: 0 }}>
+          {rep.image_url
+            ? <img src={rep.image_url} alt={rep.title} style={{ width: "54px", height: "54px", borderRadius: "6px", objectFit: "cover", border: "1px solid #2a2a2a", display: "block" }} onError={e => { e.target.style.display = "none"; e.target.nextSibling.style.display = "flex"; }} />
+            : null}
+          <div style={{ width: "54px", height: "54px", borderRadius: "6px", background: "#1a1a1a", border: "1px solid #222", display: rep.image_url ? "none" : "flex", alignItems: "center", justifyContent: "center", fontSize: "22px" }}>💿</div>
+        </div>
+
+        {/* Info */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "8px" }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div
+                style={{ fontFamily: "'Playfair Display',serif", fontSize: "16px", fontWeight: "700", color: "#f0e6d3", marginBottom: "2px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", cursor: onOpenProfile ? "pointer" : "default", textDecoration: "none" }}
+                onClick={e => { if (onOpenProfile) { e.stopPropagation(); onOpenProfile(copies); } }}
+                title={onOpenProfile ? "View album profile" : undefined}
+              >{rep.title}</div>
+              <div style={{ fontSize: "13px", color: "#9a8a7a", marginBottom: "8px" }}>{rep.artist}</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center" }}>
+                {sparrowCopies.length > 0 && <Badge color="sparrow">{sparrowCopies.length > 1 ? `${sparrowCopies.length}× ` : ""}At Sparrow 🍷</Badge>}
+                {homeCopies.length > 0 && <Badge color="home">{homeCopies.length > 1 ? `${homeCopies.length}× ` : ""}At Home 🏠</Badge>}
+                {rep.genre && <span style={{ fontSize: "11px", color: "#6a5a4a", background: "#222", padding: "2px 8px", borderRadius: "20px" }}>{rep.genre}</span>}
+                {rep.year && <span style={{ fontSize: "11px", color: "#6a5a4a", background: "#222", padding: "2px 8px", borderRadius: "20px" }}>{rep.year}</span>}
+              </div>
+            </div>
+            {/* "I have this too" — only if current user doesn't already own a copy */}
+            {!iAlreadyHaveIt && myProfile && (
+              <button
+                onClick={e => { e.stopPropagation(); onAddMyCopy(rep); }}
+                style={{ ...b("#1e2a1e", "#a8d5b5"), border: "1px solid #3a5a3a", fontSize: "11px", padding: "5px 10px", flexShrink: 0, whiteSpace: "nowrap" }}
+              >
+                + I have this
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Expanded: one row per copy */}
+      {open && (
+        <div style={{ marginTop: "14px", borderTop: "1px solid #222", paddingTop: "14px" }} onClick={e => e.stopPropagation()}>
+          <div style={{ fontSize: "10px", color: "#555", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: "10px" }}>
+            {copies.length} {copies.length === 1 ? "copy" : "copies"} in collection
+          </div>
+          {copies.map(copy => {
+            const ownerProfile = profiles?.find(p => p.id === copy.owner_id);
+            const ownerIsSparrow = ownerProfile?.display_name === "Sparrow Wine Bar";
+            const isMyRecord = copy.owner_id === myProfile?.id;
+            const atSparrow = copy.status === "at_sparrow";
+            return (
+              <div key={copy.id} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 10px", background: "#141414", borderRadius: "8px", marginBottom: "6px", flexWrap: "wrap" }}>
+                <span style={{ fontSize: "12px", color: isMyRecord ? "#c9a96e" : "#9a8a7a", fontWeight: isMyRecord ? "600" : "400", minWidth: "90px" }}>
+                  {ownerIsSparrow ? "🍷" : "👤"} {ownerProfile?.display_name || "Unknown"}
+                  {isMyRecord && <span style={{ fontSize: "10px", color: "#7a6a4a", marginLeft: "4px" }}>(you)</span>}
+                </span>
+                <Badge color={atSparrow ? "sparrow" : "home"}>{atSparrow ? "At Sparrow 🍷" : "At Home 🏠"}</Badge>
+                {copy.last_played && <Badge color="recent">Played</Badge>}
+                {(!profileView || isMyRecord) && (
+                  <div style={{ display: "flex", gap: "6px", marginLeft: "auto", flexWrap: "wrap" }}>
+                    <button onClick={() => onToggleLocation(copy.id, copy.status)} style={b(atSparrow ? "#2d4a3e" : "#4a2d35", atSparrow ? "#a8d5b5" : "#d5a8b5", { fontSize: "11px", padding: "4px 8px" })}>{atSparrow ? "🏠 Home" : "🍷 Sparrow"}</button>
+                    <button onClick={() => onMarkPlayed(copy.id)} style={b("#1a2030", "#a8bcd5", { fontSize: "11px", padding: "4px 8px" })}>🎵 Played</button>
+                    <button onClick={() => onEdit(copy)} style={b("#2a2a2a", "#c9a96e", { fontSize: "11px", padding: "4px 8px" })}>Edit</button>
+                    <button onClick={() => onDelete(copy.id)} style={b("#2a1818", "#d5a8a8", { fontSize: "11px", padding: "4px 8px" })}>Delete</button>
+                  </div>
+                )}
+                {copy.notes && <div style={{ width: "100%", fontSize: "11px", color: "#5a4a3a", fontStyle: "italic", marginTop: "2px", paddingLeft: "2px" }}>"{copy.notes}"</div>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Collectors Tab ────────────────────────────────────────────────
+function CollectorsTab({ profiles, records, myProfile, onViewProfile }) {
+
+  const getStats = profileId => {
+    const mine = records.filter(r => r.owner_id === profileId);
+    const albumSet = new Set(mine.map(albumKey));
+    const genres = mine.map(r => r.genre).filter(Boolean);
+    const genreFreq = genres.reduce((acc, g) => { acc[g] = (acc[g] || 0) + 1; return acc; }, {});
+    const topGenre = Object.entries(genreFreq).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+    return {
+      albums: albumSet.size,
+      copies: mine.length,
+      home: mine.filter(r => r.status === "home").length,
+      sparrow: mine.filter(r => r.status === "at_sparrow").length,
+      topGenre,
+    };
+  };
+
+  // Only show profiles that own at least one record, or all profiles
+  const sorted = [...profiles].sort((a, b) => {
+    const sa = getStats(a.id), sb = getStats(b.id);
+    if (a.id === myProfile?.id) return -1;
+    if (b.id === myProfile?.id) return 1;
+    return sb.albums - sa.albums;
+  });
+
+  if (profiles.length === 0) return (
+    <div style={{ textAlign: "center", padding: "60px 20px" }}>
+      <div style={{ fontSize: "48px", marginBottom: "12px" }}>👥</div>
+      <div style={{ fontFamily: "'Playfair Display',serif", fontSize: "18px", color: "#444" }}>No collectors yet</div>
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{ marginBottom: "20px" }}>
+        <h3 style={{ fontFamily: "'Playfair Display',serif", color: "#c9a96e", fontSize: "16px", margin: "0 0 4px" }}>The Collectors</h3>
+        <div style={{ fontSize: "12px", color: "#444" }}>{profiles.length} member{profiles.length !== 1 ? "s" : ""} · click a card to browse their collection</div>
+      </div>
+      <div style={{ display: "grid", gap: "10px" }}>
+        {sorted.map(profile => {
+          const s = getStats(profile.id);
+          const isMe = profile.id === myProfile?.id;
+          return (
+            <div
+              key={profile.id}
+              onClick={() => onViewProfile(profile)}
+              style={{ background: "linear-gradient(135deg,#1a1a1a,#202020)", border: `1px solid ${isMe ? "#c9a96e44" : "#2a2a2a"}`, borderRadius: "12px", padding: "16px 20px", cursor: "pointer", transition: "border-color 0.2s", display: "flex", alignItems: "center", gap: "16px" }}
+              onMouseEnter={e => e.currentTarget.style.borderColor = "#c9a96e"}
+              onMouseLeave={e => e.currentTarget.style.borderColor = isMe ? "#c9a96e44" : "#2a2a2a"}
+            >
+              {/* Avatar */}
+              <div style={{ width: "52px", height: "52px", borderRadius: "50%", background: "#222", border: `2px solid ${isMe ? "#c9a96e" : "#333"}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "24px", flexShrink: 0 }}>
+                {profile.avatar_emoji || "👤"}
+              </div>
+              {/* Info */}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "2px" }}>
+                  <span style={{ fontFamily: "'Playfair Display',serif", fontSize: "16px", fontWeight: "700", color: "#f0e6d3" }}>{profile.display_name}</span>
+                  {isMe && <span style={{ fontSize: "10px", color: "#c9a96e", background: "#2a2018", border: "1px solid #c9a96e44", padding: "1px 7px", borderRadius: "20px", fontWeight: "600" }}>you</span>}
+                </div>
+                {profile.bio && <div style={{ fontSize: "12px", color: "#6a5a4a", marginBottom: "6px", fontStyle: "italic" }}>{profile.bio}</div>}
+                <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+                  <span style={{ fontSize: "11px", color: "#9a8a7a" }}>💿 {s.albums} album{s.albums !== 1 ? "s" : ""}{s.copies !== s.albums ? ` (${s.copies} copies)` : ""}</span>
+                  {s.sparrow > 0 && <span style={{ fontSize: "11px", color: "#9a8a7a" }}>🍷 {s.sparrow} at Sparrow</span>}
+                  {s.home > 0 && <span style={{ fontSize: "11px", color: "#9a8a7a" }}>🏠 {s.home} at home</span>}
+                  {s.topGenre && <span style={{ fontSize: "11px", color: "#6a5a4a", background: "#222", padding: "1px 8px", borderRadius: "20px" }}>{s.topGenre}</span>}
+                </div>
+              </div>
+              <div style={{ fontSize: "16px", color: "#333" }}>›</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Profile Detail Modal ──────────────────────────────────────────
+function ProfileDetailModal({ profile, records, myProfile, profiles, onToggleLocation, onMarkPlayed, onEdit, onDelete, onAddMyCopy, onClose }) {
+  const profileRecords = records.filter(r => r.owner_id === profile.id);
+
+  const groups = Object.values(
+    profileRecords.reduce((acc, r) => {
+      const k = albumKey(r);
+      if (!acc[k]) acc[k] = [];
+      acc[k].push(r);
+      return acc;
+    }, {})
+  );
+
+  const stats = {
+    albums: new Set(profileRecords.map(albumKey)).size,
+    sparrow: profileRecords.filter(r => r.status === "at_sparrow").length,
+    home: profileRecords.filter(r => r.status === "home").length,
+  };
+
+  const isMe = profile.id === myProfile?.id;
+
+  return (
+    <Modal title="" onClose={onClose}>
+      {/* Profile header */}
+      <div style={{ display: "flex", alignItems: "center", gap: "16px", marginBottom: "20px", paddingBottom: "20px", borderBottom: "1px solid #222" }}>
+        <div style={{ width: "64px", height: "64px", borderRadius: "50%", background: "#222", border: "2px solid #c9a96e", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "30px", flexShrink: 0 }}>
+          {profile.avatar_emoji || "👤"}
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+            <span style={{ fontFamily: "'Playfair Display',serif", fontSize: "20px", fontWeight: "700", color: "#f0e6d3" }}>{profile.display_name}</span>
+            {isMe && <span style={{ fontSize: "10px", color: "#c9a96e", background: "#2a2018", border: "1px solid #c9a96e44", padding: "1px 7px", borderRadius: "20px", fontWeight: "600" }}>you</span>}
+          </div>
+          {profile.bio && <div style={{ fontSize: "13px", color: "#6a5a4a", fontStyle: "italic", marginBottom: "8px" }}>{profile.bio}</div>}
+          <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
+            {[{ icon: "💿", label: "Albums", val: stats.albums }, { icon: "🍷", label: "At Sparrow", val: stats.sparrow }, { icon: "🏠", label: "At Home", val: stats.home }].map(s => (
+              <div key={s.label} style={{ textAlign: "center" }}>
+                <div style={{ fontSize: "16px", fontWeight: "700", color: "#c9a96e" }}>{s.val}</div>
+                <div style={{ fontSize: "10px", color: "#444", textTransform: "uppercase", letterSpacing: "0.06em" }}>{s.icon} {s.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Collection */}
+      {groups.length === 0
+        ? <div style={{ textAlign: "center", padding: "40px 20px" }}><div style={{ fontSize: "40px", marginBottom: "10px" }}>💿</div><div style={{ fontSize: "14px", color: "#444" }}>No records yet</div></div>
+        : <div style={{ display: "grid", gap: "10px" }}>
+            {groups.map(copies => (
+              <GroupedAlbumCard
+                key={albumKey(copies[0])}
+                copies={copies}
+                myProfile={myProfile}
+                profiles={profiles}
+                onToggleLocation={onToggleLocation}
+                onMarkPlayed={onMarkPlayed}
+                onEdit={onEdit}
+                onDelete={onDelete}
+                onAddMyCopy={onAddMyCopy}
+                profileView={true}
+              />
+            ))}
+          </div>
+      }
+    </Modal>
+  );
+}
+
+// ── Played Confirm Modal ──────────────────────────────────────────
+function PlayedConfirmModal({ record, nights, onConfirm, onClose }) {
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [saving, setSaving] = useState(false);
+  const existing = nights.find(n => n.date === date);
+
+  const confirm = async (logSession) => {
+    setSaving(true);
+    await onConfirm(record, date, logSession);
+  };
+
+  return (
+    <Modal title="🎵 Mark as Played" onClose={onClose}>
+      <div style={{ background: "#1e2218", border: "1px solid #3a4a2a", borderRadius: "10px", padding: "14px 16px", marginBottom: "20px" }}>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: "15px", fontWeight: "700", color: "#f0e6d3", marginBottom: "2px" }}>{record.title}</div>
+        <div style={{ fontSize: "12px", color: "#6a5a4a" }}>{record.artist}</div>
+      </div>
+      <Field label="Date Played">
+        <input type="date" style={inp} value={date} onChange={e => setDate(e.target.value)} />
+      </Field>
+      <div style={{ fontSize: "12px", color: existing ? "#a8d5b5" : "#6a5a4a", background: existing ? "#1e2a1e" : "#1a1a1a", border: `1px solid ${existing ? "#3a5a3a" : "#2a2a2a"}`, borderRadius: "8px", padding: "10px 12px", marginBottom: "20px" }}>
+        {existing
+          ? `✓ Will be added to the Aperitivo Hour already logged for this date`
+          : `A new Aperitivo Hour session will be created for this date`}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+        <button onClick={() => confirm(true)} disabled={saving} style={{ ...b("linear-gradient(135deg,#c9a96e,#b8924a)", "#1a1a1a"), padding: "12px", fontSize: "14px", opacity: saving ? 0.7 : 1, cursor: saving ? "not-allowed" : "pointer" }}>
+          {saving ? "Saving…" : "✓ Mark Played & Log Aperitivo Hour"}
+        </button>
+        <button onClick={() => confirm(false)} disabled={saving} style={{ ...b("#1a1a1a", "#666"), border: "1px solid #252525", padding: "10px", fontSize: "13px" }}>
+          Just mark as played (no session)
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+// ── Album Profile Modal ───────────────────────────────────────────
+function AlbumProfileModal({ copies, profiles, nights, myProfile, onClose, onToggleLocation, onMarkPlayed, onEdit, onDelete, onAddMyCopy }) {
+  const rep = copies[0];
+  const iAlreadyHaveIt = myProfile && copies.some(c => c.owner_id === myProfile.id);
+
+  // Find all sessions this album appeared in
+  const copyIds = new Set(copies.map(c => c.id));
+  const relatedSessions = nights
+    .filter(n => n.record_ids && n.record_ids.split(",").filter(Boolean).map(Number).some(id => copyIds.has(id)))
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  // Last played: max of last_played on any copy, or most recent session date
+  const lastPlayedDates = [
+    ...copies.map(c => c.last_played).filter(Boolean),
+    ...relatedSessions.map(s => s.date + "T12:00:00"),
+  ].sort().reverse();
+  const lastPlayed = lastPlayedDates[0] ? new Date(lastPlayedDates[0]) : null;
+
+  const stats = {
+    sparrow: copies.filter(c => c.status === "at_sparrow").length,
+    home: copies.filter(c => c.status === "home").length,
+    sessions: relatedSessions.length,
+  };
+
+  return (
+    <Modal title="" onClose={onClose}>
+      {/* Hero */}
+      <div style={{ display: "flex", gap: "16px", marginBottom: "20px", paddingBottom: "20px", borderBottom: "1px solid #222" }}>
+        <div style={{ flexShrink: 0 }}>
+          {rep.image_url
+            ? <img src={rep.image_url} alt={rep.title} style={{ width: "110px", height: "110px", borderRadius: "10px", objectFit: "cover", border: "1px solid #2a2a2a", display: "block" }} onError={e => { e.target.style.display = "none"; }} />
+            : <div style={{ width: "110px", height: "110px", borderRadius: "10px", background: "#1a1a1a", border: "1px solid #222", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "40px" }}>💿</div>}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: "'Playfair Display',serif", fontSize: "22px", fontWeight: "900", color: "#f0e6d3", lineHeight: 1.15, marginBottom: "4px" }}>{rep.title}</div>
+          <div style={{ fontSize: "14px", color: "#9a8a7a", marginBottom: "10px" }}>{rep.artist}</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "12px" }}>
+            {rep.year && <span style={{ fontSize: "11px", color: "#6a5a4a", background: "#222", padding: "2px 8px", borderRadius: "20px" }}>{rep.year}</span>}
+            {rep.genre && <span style={{ fontSize: "11px", color: "#6a5a4a", background: "#222", padding: "2px 8px", borderRadius: "20px" }}>{rep.genre}</span>}
+            {stats.sparrow > 0 && <Badge color="sparrow">{stats.sparrow > 1 ? `${stats.sparrow}× ` : ""}At Sparrow 🍷</Badge>}
+            {stats.home > 0 && <Badge color="home">{stats.home > 1 ? `${stats.home}× ` : ""}At Home 🏠</Badge>}
+          </div>
+          {/* Last played — prominent */}
+          {lastPlayed
+            ? <div style={{ fontSize: "12px", color: "#c9a96e", fontWeight: "600" }}>🎵 Last played {lastPlayed.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</div>
+            : <div style={{ fontSize: "12px", color: "#3a3a3a" }}>Never played at an Aperitivo Hour</div>}
+        </div>
+      </div>
+
+      {/* About / Synopsis */}
+      <div style={{ marginBottom: "20px" }}>
+        <div style={{ fontSize: "11px", fontWeight: "600", color: "#7a6a5a", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "10px" }}>About This Album</div>
+        {rep.synopsis
+          ? <div style={{ fontSize: "13px", color: "#c0b0a0", lineHeight: 1.75 }}>{rep.synopsis}</div>
+          : <div style={{ fontSize: "13px", color: "#3a3a3a", fontStyle: "italic" }}>Generating synopsis… this may take a moment.</div>}
+      </div>
+
+      {/* Copies */}
+      <div style={{ marginBottom: "20px" }}>
+        <div style={{ fontSize: "11px", fontWeight: "600", color: "#7a6a5a", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "10px" }}>
+          {copies.length} {copies.length === 1 ? "Copy" : "Copies"} in Collection
+        </div>
+        {copies.map(copy => {
+          const ownerProfile = profiles?.find(p => p.id === copy.owner_id);
+          const isMe = copy.owner_id === myProfile?.id;
+          const atSparrow = copy.status === "at_sparrow";
+          return (
+            <div key={copy.id} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 10px", background: "#141414", borderRadius: "8px", marginBottom: "6px", flexWrap: "wrap" }}>
+              <span style={{ fontSize: "12px", color: isMe ? "#c9a96e" : "#9a8a7a", fontWeight: isMe ? "600" : "400", minWidth: "100px" }}>
+                {ownerProfile?.avatar_emoji || "👤"} {ownerProfile?.display_name || "Unknown"}{isMe && <span style={{ fontSize: "10px", color: "#7a6a4a", marginLeft: "4px" }}>(you)</span>}
+              </span>
+              <Badge color={atSparrow ? "sparrow" : "home"}>{atSparrow ? "At Sparrow 🍷" : "At Home 🏠"}</Badge>
+              <div style={{ display: "flex", gap: "6px", marginLeft: "auto", flexWrap: "wrap" }}>
+                <button onClick={() => onMarkPlayed(copy.id)} style={b("#1a2030", "#a8bcd5", { fontSize: "11px", padding: "4px 8px" })}>🎵 Played</button>
+                <button onClick={() => onToggleLocation(copy.id, copy.status)} style={b(atSparrow ? "#2d4a3e" : "#4a2d35", atSparrow ? "#a8d5b5" : "#d5a8b5", { fontSize: "11px", padding: "4px 8px" })}>{atSparrow ? "🏠 Home" : "🍷 Sparrow"}</button>
+                <button onClick={() => { onEdit(copy); onClose(); }} style={b("#2a2a2a", "#c9a96e", { fontSize: "11px", padding: "4px 8px" })}>Edit</button>
+                <button onClick={() => { onDelete(copy.id); onClose(); }} style={b("#2a1818", "#d5a8a8", { fontSize: "11px", padding: "4px 8px" })}>Delete</button>
+              </div>
+            </div>
+          );
+        })}
+        {!iAlreadyHaveIt && myProfile && (
+          <button onClick={() => { onAddMyCopy(rep); onClose(); }} style={{ ...b("#1e2a1e", "#a8d5b5"), border: "1px solid #3a5a3a", width: "100%", padding: "9px", marginTop: "6px", fontSize: "12px" }}>+ I have this too — add my copy</button>
+        )}
+      </div>
+
+      {/* Aperitivo Hour Timeline */}
+      <div>
+        <div style={{ fontSize: "11px", fontWeight: "600", color: "#7a6a5a", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "10px" }}>
+          🍷 Aperitivo Hour History {stats.sessions > 0 ? `· ${stats.sessions} session${stats.sessions !== 1 ? "s" : ""}` : ""}
+        </div>
+        {relatedSessions.length === 0
+          ? <div style={{ fontSize: "12px", color: "#333", fontStyle: "italic", padding: "10px 0" }}>Not yet played at an Aperitivo Hour</div>
+          : <div style={{ display: "grid", gap: "8px" }}>
+              {relatedSessions.map(s => (
+                <div key={s.id} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "10px 12px", background: "#141414", borderRadius: "8px", borderLeft: "3px solid #c9a96e44" }}>
+                  <div style={{ flexShrink: 0 }}>
+                    <div style={{ fontSize: "12px", fontWeight: "600", color: "#f0e6d3" }}>{new Date(s.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</div>
+                    {s.theme && <div style={{ fontSize: "11px", color: "#c9a96e", marginTop: "2px" }}>{s.theme}</div>}
+                  </div>
+                  {s.notes && <div style={{ fontSize: "11px", color: "#5a4a3a", fontStyle: "italic", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>"{s.notes}"</div>}
+                </div>
+              ))}
+            </div>
+        }
+      </div>
+    </Modal>
+  );
+}
+
 // ── History ───────────────────────────────────────────────────────
 function History({ records, nights, onSave, onDelete }) {
   const [showForm, setShowForm] = useState(false);
@@ -509,10 +1011,10 @@ function History({ records, nights, onSave, onDelete }) {
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
-        <div><h3 style={{ fontFamily: "'Playfair Display',serif", color: "#c9a96e", fontSize: "16px", margin: "0 0 2px" }}>Listening Hour History</h3><div style={{ fontSize: "12px", color: "#444" }}>{nights.length} session{nights.length !== 1 ? "s" : ""} recorded</div></div>
+        <div><h3 style={{ fontFamily: "'Playfair Display',serif", color: "#c9a96e", fontSize: "16px", margin: "0 0 2px" }}>Aperitivo Hour History</h3><div style={{ fontSize: "12px", color: "#444" }}>{nights.length} session{nights.length !== 1 ? "s" : ""} recorded</div></div>
         <button onClick={openNew} style={{ background: "linear-gradient(135deg,#c9a96e,#b8924a)", color: "#1a1a1a", border: "none", borderRadius: "8px", padding: "8px 14px", fontWeight: "700", fontSize: "12px", cursor: "pointer" }}>+ Log a Session</button>
       </div>
-      {sorted.length === 0 && <div style={{ textAlign: "center", padding: "50px 20px" }}><div style={{ fontSize: "40px", marginBottom: "10px" }}>🎶</div><div style={{ fontFamily: "'Playfair Display',serif", fontSize: "16px", color: "#444", marginBottom: "4px" }}>No sessions logged yet</div><div style={{ fontSize: "12px", color: "#333" }}>Log your first Sparrow Listening Hour</div></div>}
+      {sorted.length === 0 && <div style={{ textAlign: "center", padding: "50px 20px" }}><div style={{ fontSize: "40px", marginBottom: "10px" }}>🎶</div><div style={{ fontFamily: "'Playfair Display',serif", fontSize: "16px", color: "#444", marginBottom: "4px" }}>No sessions logged yet</div><div style={{ fontSize: "12px", color: "#333" }}>Log your first Sparrow Aperitivo Hour</div></div>}
       <div style={{ display: "grid", gap: "12px" }}>
         {sorted.map(night => {
           const ids = night.record_ids ? night.record_ids.split(",").filter(Boolean).map(Number) : [];
@@ -542,7 +1044,7 @@ function History({ records, nights, onSave, onDelete }) {
         })}
       </div>
       {showForm && (
-        <Modal title={editing ? "Edit Session" : "Log a Listening Hour"} onClose={() => setShowForm(false)}>
+        <Modal title={editing ? "Edit Session" : "Log an Aperitivo Hour"} onClose={() => setShowForm(false)}>
           <Field label="Date"><input type="date" style={inp} value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} /></Field>
           <Field label="Theme (optional)"><input style={inp} value={form.theme} onChange={e => setForm(f => ({ ...f, theme: e.target.value }))} placeholder="e.g. Italian Jazz, Bossa Nova Sunset..." /></Field>
           <Field label="Records Played">
@@ -589,7 +1091,7 @@ function ThemeIdeas({ records }) {
           {!Object.keys(grouped).length && <span style={{ color: "#444", fontSize: "13px" }}>Add records to see genre breakdown</span>}
         </div>
       </div>
-      <h3 style={{ fontFamily: "'Playfair Display',serif", color: "#c9a96e", fontSize: "16px", margin: "0 0 12px" }}>Listening Hour Theme Ideas</h3>
+      <h3 style={{ fontFamily: "'Playfair Display',serif", color: "#c9a96e", fontSize: "16px", margin: "0 0 12px" }}>Aperitivo Hour Theme Ideas</h3>
       <div style={{ display: "grid", gap: "10px" }}>
         {themes.map(t => { const count = (grouped[t.key] || []).length; return (
           <div key={t.key} style={{ background: "linear-gradient(135deg,#1a1a1a,#1e1e1e)", border: `1px solid ${count > 0 ? "#3a3020" : "#202020"}`, borderRadius: "10px", padding: "14px", opacity: count === 0 ? 0.4 : 1 }}>
@@ -615,7 +1117,7 @@ function VinylGuru({ records, session }) {
   const starters = [
     "Build me a mellow Friday night playlist",
     "What genres should I add to round out the collection?",
-    "Suggest a listening hour theme for tonight",
+    "Suggest a aperitivo hour theme for tonight",
     "What wine pairs best with what's currently at Sparrow?",
   ];
 
@@ -631,7 +1133,7 @@ function VinylGuru({ records, session }) {
       ? records.map(r => `• ${r.title} by ${r.artist}${r.year ? ` (${r.year})` : ""}${r.genre ? ` [${r.genre}]` : ""}${r.status === "at_sparrow" ? " — at Sparrow" : " — at home"}`).join("\n")
       : "No records in collection yet.";
 
-    const systemPrompt = `You are the Vinyl Guru for Sparrow Wine Bar in Orlando — a knowledgeable, warm, and slightly poetic advisor for vinyl records and wine pairings. You help the staff curate playlists, plan listening hour themes, and decide what to spin next.
+    const systemPrompt = `You are the Vinyl Guru for Sparrow Wine Bar in Orlando — a knowledgeable, warm, and slightly poetic advisor for vinyl records and wine pairings. You help the staff curate playlists, plan aperitivo hour themes, and decide what to spin next.
 
 Current vinyl collection (${records.length} records):
 ${collectionLines}
@@ -755,16 +1257,46 @@ export default function App() {
   const [editRec, setEditRec] = useState(null);
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
+  const [showEditProfile, setShowEditProfile] = useState(false);
+  const [viewingProfile, setViewingProfile] = useState(null);
+  const [viewingAlbum, setViewingAlbum] = useState(null);  // copies[] for AlbumProfileModal
+  const [playingRecord, setPlayingRecord] = useState(null); // record for PlayedConfirmModal
+  const backfillRef = useRef(false);
 
   const handleLogin = data => { localStorage.setItem("sparrow_session", JSON.stringify(data)); setSession(data); };
-  const handleLogout = async () => { try { await authApi.signOut(session.access_token); } catch {} localStorage.removeItem("sparrow_session"); setSession(null); setRecords([]); setNights([]); setProfiles([]); };
+  const handleLogout = async () => { try { await authApi.signOut(session.access_token); } catch {} localStorage.removeItem("sparrow_session"); setSession(null); setRecords([]); setNights([]); setProfiles([]); backfillRef.current = false; };
   const getDb = (token) => makeDb(token || session.access_token);
+
+  // Background: generate + save synopsis for one album, update all its copies in state
+  const generateSynopsisForAlbum = async (rep) => {
+    const synopsis = await generateSynopsis(rep.title, rep.artist, rep.year, rep.genre, session.access_token);
+    if (!synopsis) return;
+    await getDb().update("records", rep.id, { synopsis });
+    setRecords(prev => prev.map(r => albumKey(r) === albumKey(rep) ? { ...r, synopsis } : r));
+  };
+
+  // Background backfill: run once per session after records load
+  const backfillSynopses = async (recs) => {
+    if (backfillRef.current) return;
+    backfillRef.current = true;
+    const seen = new Set();
+    const toProcess = [];
+    for (const r of recs) {
+      const k = albumKey(r);
+      if (!seen.has(k) && !r.synopsis) { seen.add(k); toProcess.push(r); }
+    }
+    for (const rec of toProcess) {
+      try { await generateSynopsisForAlbum(rec); } catch {}
+      await new Promise(res => setTimeout(res, 2500));
+    }
+  };
 
   const loadData = async () => {
     setLoading(true); setError(null);
     try {
       const [r, s, p] = await Promise.all([getDb().get("records"), getDb().get("sessions"), getDb().get("profiles")]);
       setRecords(r); setNights(s); setProfiles(p);
+      setTimeout(() => backfillSynopses(r), 3000);
     } catch {
       try {
         const refreshed = await authApi.refresh(session.refresh_token);
@@ -772,6 +1304,7 @@ export default function App() {
         handleLogin(newSess);
         const [r, s, p] = await Promise.all([getDb(refreshed.access_token).get("records"), getDb(refreshed.access_token).get("sessions"), getDb(refreshed.access_token).get("profiles")]);
         setRecords(r); setNights(s); setProfiles(p);
+        setTimeout(() => backfillSynopses(r), 3000);
       } catch { handleLogout(); }
     }
     setLoading(false);
@@ -787,6 +1320,7 @@ export default function App() {
     if (form._imageFile) {
       imageUrl = await getDb().uploadImage(form._imageFile);
     }
+    const ownerId = form.owner_id || myProfile?.id || null;
     const payload = {
       title: form.title,
       artist: form.artist,
@@ -795,15 +1329,18 @@ export default function App() {
       status: form.status,
       notes: form.notes,
       image_url: imageUrl,
+      owner_id: ownerId,
     };
-    // owner_id excluded until FK constraint is dropped in Supabase
-    const ownerId = form.owner_id || myProfile?.id || null;
     if (editRec) {
       const u = await getDb().update("records", editRec.id, payload);
       setRecords(p => p.map(r => r.id === editRec.id ? u : r));
+      // Generate synopsis in background if missing
+      if (!u.synopsis) generateSynopsisForAlbum(u).catch(() => {});
     } else {
       const c = await getDb().insert("records", { ...payload, added_by: myProfile?.display_name || session.user?.email || null });
       setRecords(p => [...p, c]);
+      // Generate synopsis in background
+      generateSynopsisForAlbum(c).catch(() => {});
     }
     setShowAdd(false); setEditRec(null);
     // Errors propagate up to AddEditModal which displays them inline
@@ -815,15 +1352,55 @@ export default function App() {
     catch { setError("Failed to update record."); }
   };
 
-  const markPlayed = async id => {
-    try { const u = await getDb().update("records", id, { last_played: new Date().toISOString() }); setRecords(p => p.map(r => r.id === id ? u : r)); }
-    catch { setError("Failed to update record."); }
+  const markPlayed = id => {
+    const record = records.find(r => r.id === id);
+    if (record) setPlayingRecord(record);
+  };
+
+  const confirmPlayed = async (record, date, logSession) => {
+    try {
+      const u = await getDb().update("records", record.id, { last_played: new Date(date + "T12:00:00").toISOString() });
+      setRecords(p => p.map(r => r.id === record.id ? u : r));
+      if (logSession) {
+        const existing = nights.find(n => n.date === date);
+        if (existing) {
+          const ids = existing.record_ids ? existing.record_ids.split(",").filter(Boolean) : [];
+          if (!ids.includes(String(record.id))) {
+            const updated = await getDb().update("sessions", existing.id, { record_ids: [...ids, String(record.id)].join(",") });
+            setNights(p => p.map(n => n.id === existing.id ? updated : n));
+          }
+        } else {
+          const created = await getDb().insert("sessions", { date, theme: "", notes: "", record_ids: String(record.id) });
+          setNights(p => [...p, created]);
+        }
+      }
+    } catch(e) { setError(`Failed to mark as played: ${e.message}`); }
+    setPlayingRecord(null);
   };
 
   const deleteRecord = async id => {
     if (!window.confirm("Delete this record? This cannot be undone.")) return;
     try { await getDb().remove("records", id); setRecords(p => p.filter(r => r.id !== id)); }
     catch { setError("Failed to delete record."); }
+  };
+
+  const addMyCopy = async (sourceRecord) => {
+    try {
+      const c = await getDb().insert("records", {
+        title: sourceRecord.title,
+        artist: sourceRecord.artist,
+        genre: sourceRecord.genre || null,
+        year: sourceRecord.year || null,
+        image_url: sourceRecord.image_url || null,
+        status: "home",
+        owner_id: myProfile?.id || null,
+        added_by: myProfile?.display_name || session.user?.email || null,
+        notes: null,
+      });
+      setRecords(p => [...p, c]);
+    } catch (e) {
+      setError(`Failed to add your copy: ${e.message}`);
+    }
   };
 
   const saveNight = async form => {
@@ -850,8 +1427,10 @@ export default function App() {
     return ms && mf;
   });
 
+  const uniqueAlbumCount = new Set(records.map(albumKey)).size;
   const stats = {
-    total: records.length,
+    albums: uniqueAlbumCount,
+    copies: records.length,
     home: records.filter(r => r.status === "home").length,
     sparrow: records.filter(r => r.status === "at_sparrow").length,
   };
@@ -871,20 +1450,35 @@ export default function App() {
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
               <button onClick={() => setShowAdd(true)} style={{ background: "linear-gradient(135deg,#c9a96e,#b8924a)", color: "#1a1a1a", border: "none", borderRadius: "8px", padding: "10px 16px", fontWeight: "700", fontSize: "13px", cursor: "pointer" }}>+ Add Record</button>
-              <div style={{ borderLeft: "1px solid #2a2a2a", paddingLeft: "10px" }}>
-                <div style={{ fontSize: "10px", color: "#3a3a3a", marginBottom: "2px", textTransform: "uppercase", letterSpacing: "0.05em" }}>Signed in as</div>
-                <div style={{ fontSize: "11px", color: "#6a5a4a", maxWidth: "140px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{myProfile?.display_name || session.user?.email}</div>
+              <div style={{ borderLeft: "1px solid #2a2a2a", paddingLeft: "10px", display: "flex", alignItems: "center", gap: "8px" }}>
+                <div
+                  onClick={() => setShowEditProfile(true)}
+                  title="Edit your profile"
+                  style={{ width: "32px", height: "32px", borderRadius: "50%", background: "#222", border: "1px solid #333", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "16px", cursor: "pointer", transition: "border-color 0.15s", flexShrink: 0 }}
+                  onMouseEnter={e => e.currentTarget.style.borderColor = "#c9a96e"}
+                  onMouseLeave={e => e.currentTarget.style.borderColor = "#333"}
+                >
+                  {myProfile?.avatar_emoji || "👤"}
+                </div>
+                <div>
+                  <div style={{ fontSize: "10px", color: "#3a3a3a", textTransform: "uppercase", letterSpacing: "0.05em" }}>Signed in as</div>
+                  <div style={{ fontSize: "11px", color: "#6a5a4a", maxWidth: "120px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{myProfile?.display_name || session.user?.email}</div>
+                </div>
               </div>
               <button onClick={handleLogout} style={{ ...b("#1a1a1a", "#666"), border: "1px solid #252525", padding: "8px 12px" }}>Sign Out</button>
             </div>
           </div>
           <div style={{ display: "flex", gap: "24px", marginBottom: "16px", flexWrap: "wrap" }}>
-            {[{ label: "Total", val: stats.total, icon: "💿" }, { label: "At Home", val: stats.home, icon: "🏠" }, { label: "At Sparrow", val: stats.sparrow, icon: "🍷" }].map(s => (
-              <div key={s.label}><div style={{ fontSize: "20px", fontWeight: "700", color: "#c9a96e" }}>{s.val}</div><div style={{ fontSize: "10px", color: "#444", textTransform: "uppercase", letterSpacing: "0.08em" }}>{s.icon} {s.label}</div></div>
+            {[{ label: "Albums", val: stats.albums, icon: "💿", sub: stats.copies !== stats.albums ? `${stats.copies} copies` : null }, { label: "At Home", val: stats.home, icon: "🏠" }, { label: "At Sparrow", val: stats.sparrow, icon: "🍷" }].map(s => (
+              <div key={s.label}>
+                <div style={{ fontSize: "20px", fontWeight: "700", color: "#c9a96e" }}>{s.val}</div>
+                <div style={{ fontSize: "10px", color: "#444", textTransform: "uppercase", letterSpacing: "0.08em" }}>{s.icon} {s.label}</div>
+                {s.sub && <div style={{ fontSize: "10px", color: "#3a3a3a", marginTop: "1px" }}>{s.sub}</div>}
+              </div>
             ))}
           </div>
           <div style={{ display: "flex" }}>
-            {[{ key: "collection", label: "Collection" }, { key: "history", label: "History" }, { key: "themes", label: "Theme Ideas" }, { key: "guru", label: "🎵 Vinyl Guru" }].map(t => (
+            {[{ key: "collection", label: "Collection" }, { key: "history", label: "History" }, { key: "themes", label: "Theme Ideas" }, { key: "collectors", label: "👥 Collectors" }, { key: "guru", label: "🎵 Vinyl Guru" }].map(t => (
               <button key={t.key} onClick={() => setTab(t.key)} style={{ background: "none", border: "none", borderBottom: `2px solid ${tab === t.key ? "#c9a96e" : "transparent"}`, color: tab === t.key ? "#c9a96e" : "#3e3e3e", padding: "10px 16px", cursor: "pointer", fontWeight: "600", fontSize: "13px", transition: "all 0.15s" }}>{t.label}</button>
             ))}
           </div>
@@ -904,18 +1498,40 @@ export default function App() {
                     ))}
                   </div>
                 </div>
-                {filtered.length === 0
-                  ? <div style={{ textAlign: "center", padding: "60px 20px" }}><div style={{ fontSize: "48px", marginBottom: "12px" }}>💿</div><div style={{ fontFamily: "'Playfair Display',serif", fontSize: "18px", color: "#444", marginBottom: "6px" }}>{records.length === 0 ? "No records yet" : "No records match"}</div><div style={{ fontSize: "13px", color: "#333" }}>{records.length === 0 ? "Add your first record to get started" : "Try a different filter"}</div></div>
-                  : <div style={{ display: "grid", gap: "10px" }}>
-                    {filtered.map(r => (
-                      <RecordCard key={r.id} record={r} onToggleLocation={toggleLocation} onMarkPlayed={markPlayed} onEdit={setEditRec} onDelete={deleteRecord} profiles={profiles} />
-                    ))}
-                  </div>
-                }
+                {(() => {
+                  // Group filtered copies by album (title+artist)
+                  const groups = Object.values(
+                    filtered.reduce((acc, r) => {
+                      const k = albumKey(r);
+                      if (!acc[k]) acc[k] = [];
+                      acc[k].push(r);
+                      return acc;
+                    }, {})
+                  );
+                  return groups.length === 0
+                    ? <div style={{ textAlign: "center", padding: "60px 20px" }}><div style={{ fontSize: "48px", marginBottom: "12px" }}>💿</div><div style={{ fontFamily: "'Playfair Display',serif", fontSize: "18px", color: "#444", marginBottom: "6px" }}>{records.length === 0 ? "No records yet" : "No records match"}</div><div style={{ fontSize: "13px", color: "#333" }}>{records.length === 0 ? "Add your first record to get started" : "Try a different filter"}</div></div>
+                    : <div style={{ display: "grid", gap: "10px" }}>
+                        {groups.map(copies => (
+                          <GroupedAlbumCard
+                            key={albumKey(copies[0])}
+                            copies={copies}
+                            myProfile={myProfile}
+                            profiles={profiles}
+                            onToggleLocation={toggleLocation}
+                            onMarkPlayed={markPlayed}
+                            onEdit={setEditRec}
+                            onDelete={deleteRecord}
+                            onAddMyCopy={addMyCopy}
+                            onOpenProfile={setViewingAlbum}
+                          />
+                        ))}
+                      </div>;
+                })()}
               </>
             )}
             {tab === "history" && <History records={records} nights={nights} onSave={saveNight} onDelete={deleteNight} />}
             {tab === "themes" && <ThemeIdeas records={records} />}
+            {tab === "collectors" && <CollectorsTab profiles={profiles} records={records} myProfile={myProfile} onViewProfile={setViewingProfile} />}
             {tab === "guru" && <VinylGuru records={records} session={session} />}
           </>
         )}
@@ -927,6 +1543,54 @@ export default function App() {
           onClose={() => { setShowAdd(false); setEditRec(null); }}
           profiles={profiles}
           session={session}
+          dbGenres={[...new Set(records.map(r => r.genre).filter(Boolean))]}
+        />
+      )}
+      {showEditProfile && myProfile && (
+        <EditProfileModal
+          profile={myProfile}
+          session={session}
+          onSave={updated => {
+            setProfiles(p => p.map(x => x.id === updated.id ? updated : x));
+            setShowEditProfile(false);
+          }}
+          onClose={() => setShowEditProfile(false)}
+        />
+      )}
+      {viewingProfile && (
+        <ProfileDetailModal
+          profile={viewingProfile}
+          records={records}
+          myProfile={myProfile}
+          profiles={profiles}
+          onToggleLocation={toggleLocation}
+          onMarkPlayed={markPlayed}
+          onEdit={r => { setViewingProfile(null); setEditRec(r); }}
+          onDelete={deleteRecord}
+          onAddMyCopy={addMyCopy}
+          onClose={() => setViewingProfile(null)}
+        />
+      )}
+      {viewingAlbum && (
+        <AlbumProfileModal
+          copies={viewingAlbum}
+          profiles={profiles}
+          nights={nights}
+          myProfile={myProfile}
+          onClose={() => setViewingAlbum(null)}
+          onToggleLocation={toggleLocation}
+          onMarkPlayed={markPlayed}
+          onEdit={r => { setViewingAlbum(null); setEditRec(r); }}
+          onDelete={id => { deleteRecord(id); setViewingAlbum(null); }}
+          onAddMyCopy={addMyCopy}
+        />
+      )}
+      {playingRecord && (
+        <PlayedConfirmModal
+          record={playingRecord}
+          nights={nights}
+          onConfirm={confirmPlayed}
+          onClose={() => setPlayingRecord(null)}
         />
       )}
     </div>
