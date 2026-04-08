@@ -80,7 +80,7 @@ const GENRES = ["Afrobeat", "Alternative", "Ambient", "Blues", "Bluegrass", "Bos
 const albumKey = r => `${(r.title || "").toLowerCase()}|||${(r.artist || "").toLowerCase()}`;
 
 async function generateSynopsis(title, artist, year, genre, accessToken) {
-  const prompt = `Write a short, punchy 3–5 sentence blurb about the vinyl record "${title}" by ${artist}${year ? ` (${year})` : ""}${genre ? `, ${genre}` : ""}. Lead with where it sits in the artist's discography (debut, sophomore, tenth album, etc.) if known. Pack in 2–3 genuinely interesting facts — awards, chart moments, a breakout track, a behind-the-scenes detail, or why it matters. Keep it warm and conversational, like a knowledgeable friend at a record shop. No headers, no bullet points, no padding.`;
+  const prompt = `Write a short, punchy 3–5 sentence blurb about the vinyl record "${title}" by ${artist}${year ? ` (${year})` : ""}${genre ? `, ${genre}` : ""}. Lead with where it sits in the artist's discography (debut, sophomore, tenth album, etc.) if known. Pack in 2–3 genuinely interesting facts — awards, chart moments, a breakout track, a behind-the-scenes detail, or why it matters. End with a brief wine pairing suggestion that fits the album's mood — be specific with a grape or style (e.g. "Pair with a bold Barolo" or "calls for a crisp Vermentino"). Keep it warm and conversational, like a knowledgeable friend at a record shop. No headers, no bullet points, no padding.`;
   const res = await fetch(ANTHROPIC_PROXY_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}`, apikey: SUPABASE_ANON_KEY },
@@ -93,7 +93,7 @@ async function generateSynopsis(title, artist, year, genre, accessToken) {
 
 // ── Shared UI ─────────────────────────────────────────────────────
 function Badge({ children, color }) {
-  const s = { home: { background: "#2d4a3e", color: "#a8d5b5" }, sparrow: { background: "#4a2d35", color: "#d5a8b5" }, recent: { background: "#2d3a4a", color: "#a8bcd5" } };
+  const s = { home: { background: "#2d4a3e", color: "#a8d5b5" }, sparrow: { background: "#4a2d35", color: "#d5a8b5" }, recent: { background: "#2d3a4a", color: "#a8bcd5" }, wishlist: { background: "#4a4a2d", color: "#d5d5a8" } };
   return <span style={{ display: "inline-block", padding: "2px 10px", borderRadius: "20px", fontSize: "11px", fontWeight: "600", letterSpacing: "0.05em", textTransform: "uppercase", ...(s[color] || { background: "#333", color: "#ccc" }) }}>{children}</span>;
 }
 function b(bg, color, x = {}) { return { background: bg, color, border: "none", borderRadius: "6px", padding: "6px 12px", fontSize: "12px", fontWeight: "600", cursor: "pointer", ...x }; }
@@ -504,8 +504,8 @@ function AddEditModal({ record, onSave, onClose, profiles, session, dbGenres }) 
         </div>
         <Field label="Location">
           <div style={{ display: "flex", gap: "8px" }}>
-            {[{ val: "home", label: "🏠 Home" }, { val: "at_sparrow", label: "🍷 At Sparrow" }].map(opt => (
-              <button key={opt.val} onClick={() => set("status", opt.val)} style={{ ...b(form.status === opt.val ? (opt.val === "home" ? "#2d4a3e" : "#4a2d35") : "#1a1a1a", form.status === opt.val ? (opt.val === "home" ? "#a8d5b5" : "#d5a8b5") : "#555"), flex: 1, padding: "8px", fontSize: "11px", border: `1px solid ${form.status === opt.val ? "#3a3a3a" : "#2a2a2a"}` }}>{opt.label}</button>
+            {[{ val: "home", label: "🏠 Home", bg: "#2d4a3e", fg: "#a8d5b5" }, { val: "at_sparrow", label: "🍷 At Sparrow", bg: "#4a2d35", fg: "#d5a8b5" }, { val: "wishlist", label: "⭐ Wishlist", bg: "#4a4a2d", fg: "#d5d5a8" }].map(opt => (
+              <button key={opt.val} onClick={() => set("status", opt.val)} style={{ ...b(form.status === opt.val ? opt.bg : "#1a1a1a", form.status === opt.val ? opt.fg : "#555"), flex: 1, padding: "8px", fontSize: "11px", border: `1px solid ${form.status === opt.val ? "#3a3a3a" : "#2a2a2a"}` }}>{opt.label}</button>
             ))}
           </div>
         </Field>
@@ -614,6 +614,7 @@ function GroupedAlbumCard({ copies, myProfile, profiles, onToggleLocation, onMar
   const rep = copies[0]; // representative copy for artwork & metadata
   const sparrowCopies = copies.filter(c => c.status === "at_sparrow");
   const homeCopies = copies.filter(c => c.status === "home");
+  const isWishlist = copies.every(c => c.status === "wishlist");
   const iAlreadyHaveIt = myProfile && copies.some(c => c.owner_id === myProfile.id);
 
   return (
@@ -647,6 +648,7 @@ function GroupedAlbumCard({ copies, myProfile, profiles, onToggleLocation, onMar
               >{rep.title}</div>
               <div style={{ fontSize: "13px", color: "#9a8a7a", marginBottom: "8px" }}>{rep.artist}</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center" }}>
+                {isWishlist && <Badge color="wishlist">⭐ Wishlist</Badge>}
                 {sparrowCopies.length > 0 && <Badge color="sparrow">{sparrowCopies.length > 1 ? `${sparrowCopies.length}× ` : ""}At Sparrow 🍷</Badge>}
                 {homeCopies.length > 0 && <Badge color="home">{homeCopies.length > 1 ? `${homeCopies.length}× ` : ""}At Home 🏠</Badge>}
                 {rep.genre && <span style={{ fontSize: "11px", color: "#6a5a4a", background: "#222", padding: "2px 8px", borderRadius: "20px" }}>{rep.genre}</span>}
@@ -944,6 +946,16 @@ function AlbumProfileModal({ copies, profiles, nights, myProfile, onClose, onTog
           : <div style={{ fontSize: "13px", color: "#3a3a3a", fontStyle: "italic" }}>Generating synopsis… this may take a moment.</div>}
       </div>
 
+      {/* Streaming Links */}
+      <div style={{ display: "flex", gap: "8px", marginBottom: "20px" }}>
+        <a href={`https://open.spotify.com/search/${encodeURIComponent(`${rep.artist} ${rep.title}`)}`} target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", gap: "6px", background: "#1DB954", color: "#fff", border: "none", borderRadius: "8px", padding: "8px 14px", fontSize: "12px", fontWeight: "600", textDecoration: "none", cursor: "pointer", flex: 1, justifyContent: "center" }}>
+          🎧 Spotify
+        </a>
+        <a href={`https://music.youtube.com/search?q=${encodeURIComponent(`${rep.artist} ${rep.title}`)}`} target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", gap: "6px", background: "#FF0000", color: "#fff", border: "none", borderRadius: "8px", padding: "8px 14px", fontSize: "12px", fontWeight: "600", textDecoration: "none", cursor: "pointer", flex: 1, justifyContent: "center" }}>
+          ▶ YouTube Music
+        </a>
+      </div>
+
       {/* Copies */}
       <div style={{ marginBottom: "20px" }}>
         <div style={{ fontSize: "11px", fontWeight: "600", color: "#7a6a5a", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "10px" }}>
@@ -1008,12 +1020,41 @@ function History({ records, nights, onSave, onDelete }) {
   const openEdit = n => { setForm({ date: n.date, theme: n.theme || "", notes: n.notes || "", record_ids: n.record_ids || "" }); setEditing(n); setShowForm(true); };
   const save = async () => { if (!form.date) return; setSaving(true); await onSave({ ...form, id: editing?.id }); setSaving(false); setShowForm(false); setEditing(null); };
   const sorted = [...nights].sort((a, z) => new Date(z.date) - new Date(a.date));
+
+  // Quick Stats
+  const now = new Date();
+  const thisMonth = nights.filter(n => { const d = new Date(n.date + "T12:00:00"); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); });
+  const allPlayedIds = nights.flatMap(n => n.record_ids ? n.record_ids.split(",").filter(Boolean).map(Number) : []);
+  const playFreq = allPlayedIds.reduce((acc, id) => { acc[id] = (acc[id] || 0) + 1; return acc; }, {});
+  const topPlayedId = Object.entries(playFreq).sort((a, b) => b[1] - a[1])[0];
+  const topPlayedRecord = topPlayedId ? records.find(r => r.id === Number(topPlayedId[0])) : null;
+  const uniqueAlbumsPlayed = new Set(allPlayedIds).size;
+
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
         <div><h3 style={{ fontFamily: "'Playfair Display',serif", color: "#c9a96e", fontSize: "16px", margin: "0 0 2px" }}>Aperitivo Hour History</h3><div style={{ fontSize: "12px", color: "#444" }}>{nights.length} session{nights.length !== 1 ? "s" : ""} recorded</div></div>
         <button onClick={openNew} style={{ background: "linear-gradient(135deg,#c9a96e,#b8924a)", color: "#1a1a1a", border: "none", borderRadius: "8px", padding: "8px 14px", fontWeight: "700", fontSize: "12px", cursor: "pointer" }}>+ Log a Session</button>
       </div>
+      {/* Quick Stats */}
+      {nights.length > 0 && (
+        <div style={{ display: "flex", gap: "12px", marginBottom: "20px", flexWrap: "wrap" }}>
+          <div style={{ background: "linear-gradient(135deg,#1a1a1a,#1e1e1e)", border: "1px solid #252525", borderRadius: "10px", padding: "12px 16px", flex: 1, minWidth: "140px" }}>
+            <div style={{ fontSize: "22px", fontWeight: "700", color: "#c9a96e" }}>{thisMonth.length}</div>
+            <div style={{ fontSize: "10px", color: "#444", textTransform: "uppercase", letterSpacing: "0.08em" }}>🗓 This Month</div>
+          </div>
+          <div style={{ background: "linear-gradient(135deg,#1a1a1a,#1e1e1e)", border: "1px solid #252525", borderRadius: "10px", padding: "12px 16px", flex: 1, minWidth: "140px" }}>
+            <div style={{ fontSize: "22px", fontWeight: "700", color: "#c9a96e" }}>{uniqueAlbumsPlayed}</div>
+            <div style={{ fontSize: "10px", color: "#444", textTransform: "uppercase", letterSpacing: "0.08em" }}>💿 Albums Spun</div>
+          </div>
+          {topPlayedRecord && (
+            <div style={{ background: "linear-gradient(135deg,#1a1a1a,#1e1e1e)", border: "1px solid #252525", borderRadius: "10px", padding: "12px 16px", flex: 2, minWidth: "200px" }}>
+              <div style={{ fontSize: "13px", fontWeight: "700", color: "#c9a96e", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>🔥 {topPlayedRecord.title}</div>
+              <div style={{ fontSize: "10px", color: "#444", textTransform: "uppercase", letterSpacing: "0.08em" }}>Most Played · {topPlayedId[1]}× · {topPlayedRecord.artist}</div>
+            </div>
+          )}
+        </div>
+      )}
       {sorted.length === 0 && <div style={{ textAlign: "center", padding: "50px 20px" }}><div style={{ fontSize: "40px", marginBottom: "10px" }}>🎶</div><div style={{ fontFamily: "'Playfair Display',serif", fontSize: "16px", color: "#444", marginBottom: "4px" }}>No sessions logged yet</div><div style={{ fontSize: "12px", color: "#333" }}>Log your first Sparrow Aperitivo Hour</div></div>}
       <div style={{ display: "grid", gap: "12px" }}>
         {sorted.map(night => {
@@ -1257,6 +1298,9 @@ export default function App() {
   const [editRec, setEditRec] = useState(null);
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
+  const [genreFilter, setGenreFilter] = useState("");
+  const [decadeFilter, setDecadeFilter] = useState("");
+  const [ownerFilter, setOwnerFilter] = useState("");
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [viewingProfile, setViewingProfile] = useState(null);
   const [viewingAlbum, setViewingAlbum] = useState(null);  // copies[] for AlbumProfileModal
@@ -1421,27 +1465,54 @@ export default function App() {
     catch { setError("Failed to delete session."); }
   };
 
-  const filtered = records.filter(r => {
+  // Separate wishlist from main collection
+  const collectionRecords = records.filter(r => r.status !== "wishlist");
+  const wishlistRecords = records.filter(r => r.status === "wishlist");
+
+  const filtered = (filter === "wishlist" ? wishlistRecords : collectionRecords).filter(r => {
     const ms = !search || r.title?.toLowerCase().includes(search.toLowerCase()) || r.artist?.toLowerCase().includes(search.toLowerCase());
-    const mf = filter === "all" ? true : filter === "home" ? r.status === "home" : filter === "sparrow" ? r.status === "at_sparrow" : filter === "recent" ? !!r.last_played : true;
-    return ms && mf;
+    const mf = filter === "all" ? true
+      : filter === "home" ? r.status === "home"
+      : filter === "sparrow" ? r.status === "at_sparrow"
+      : filter === "played" ? !!r.last_played
+      : filter === "unplayed" ? !r.last_played
+      : filter === "recent" ? (r.created_at && (Date.now() - new Date(r.created_at).getTime()) < 30 * 24 * 60 * 60 * 1000)
+      : filter === "wishlist" ? true
+      : true;
+    const mg = !genreFilter || r.genre === genreFilter;
+    const md = !decadeFilter || (r.year && Math.floor(Number(r.year) / 10) * 10 === Number(decadeFilter));
+    const mo = !ownerFilter || r.owner_id === ownerFilter;
+    return ms && mf && mg && md && mo;
   });
 
-  const uniqueAlbumCount = new Set(records.map(albumKey)).size;
+  const uniqueAlbumCount = new Set(collectionRecords.map(albumKey)).size;
   const stats = {
     albums: uniqueAlbumCount,
-    copies: records.length,
-    home: records.filter(r => r.status === "home").length,
-    sparrow: records.filter(r => r.status === "at_sparrow").length,
+    copies: collectionRecords.length,
+    home: collectionRecords.filter(r => r.status === "home").length,
+    sparrow: collectionRecords.filter(r => r.status === "at_sparrow").length,
+    wishlist: wishlistRecords.length,
   };
+
+  // Derived filter options from collection data
+  const allGenres = [...new Set(collectionRecords.map(r => r.genre).filter(Boolean))].sort();
+  const allDecades = [...new Set(collectionRecords.map(r => r.year ? Math.floor(Number(r.year) / 10) * 10 : null).filter(Boolean))].sort();
+  const clearFilters = () => { setGenreFilter(""); setDecadeFilter(""); setOwnerFilter(""); };
+
+  // Time-of-day warm theming — golden hour glow 4pm–8pm, late night cool after 10pm
+  const hour = new Date().getHours();
+  const isGoldenHour = hour >= 16 && hour < 20;
+  const isLateNight = hour >= 22 || hour < 5;
+  const themeTint = isGoldenHour ? "rgba(201,169,110,0.04)" : isLateNight ? "rgba(80,70,100,0.06)" : "transparent";
+  const headerGradient = isGoldenHour ? "linear-gradient(180deg,#1a1510,#111)" : isLateNight ? "linear-gradient(180deg,#121218,#111)" : "linear-gradient(180deg,#151515,#111)";
 
   if (!session) return <LoginScreen onLogin={handleLogin} />;
   if (needsProfileSetup) return <ProfileSetup session={session} onSave={p => setProfiles(prev => [...prev, p])} />;
 
   return (
-    <div style={{ minHeight: "100vh", background: "#111", fontFamily: "'DM Sans','Helvetica Neue',sans-serif", color: "#f0e6d3" }}>
+    <div style={{ minHeight: "100vh", background: `${themeTint}, #111`, fontFamily: "'DM Sans','Helvetica Neue',sans-serif", color: "#f0e6d3" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=DM+Sans:wght@300;400;500;600&display=swap'); *{box-sizing:border-box;} ::-webkit-scrollbar{width:4px;} ::-webkit-scrollbar-track{background:#111;} ::-webkit-scrollbar-thumb{background:#2e2e2e;border-radius:2px;} input:focus,select:focus,textarea:focus{border-color:#c9a96e!important;} input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(0.4);}`}</style>
-      <div style={{ borderBottom: "1px solid #1e1e1e", padding: "20px 24px 0", background: "linear-gradient(180deg,#151515,#111)" }}>
+      <div style={{ borderBottom: "1px solid #1e1e1e", padding: "20px 24px 0", background: headerGradient }}>
         <div style={{ maxWidth: "720px", margin: "0 auto" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: "16px", flexWrap: "wrap", gap: "12px" }}>
             <div>
@@ -1469,7 +1540,7 @@ export default function App() {
             </div>
           </div>
           <div style={{ display: "flex", gap: "24px", marginBottom: "16px", flexWrap: "wrap" }}>
-            {[{ label: "Albums", val: stats.albums, icon: "💿", sub: stats.copies !== stats.albums ? `${stats.copies} copies` : null }, { label: "At Home", val: stats.home, icon: "🏠" }, { label: "At Sparrow", val: stats.sparrow, icon: "🍷" }].map(s => (
+            {[{ label: "Albums", val: stats.albums, icon: "💿", sub: stats.copies !== stats.albums ? `${stats.copies} copies` : null }, { label: "At Home", val: stats.home, icon: "🏠" }, { label: "At Sparrow", val: stats.sparrow, icon: "🍷" }, ...(stats.wishlist > 0 ? [{ label: "Wishlist", val: stats.wishlist, icon: "⭐" }] : [])].map(s => (
               <div key={s.label}>
                 <div style={{ fontSize: "20px", fontWeight: "700", color: "#c9a96e" }}>{s.val}</div>
                 <div style={{ fontSize: "10px", color: "#444", textTransform: "uppercase", letterSpacing: "0.08em" }}>{s.icon} {s.label}</div>
@@ -1490,13 +1561,31 @@ export default function App() {
           <>
             {tab === "collection" && (
               <>
-                <div style={{ display: "flex", gap: "8px", marginBottom: "16px", flexWrap: "wrap", alignItems: "center" }}>
+                <div style={{ display: "flex", gap: "8px", marginBottom: "12px", flexWrap: "wrap", alignItems: "center" }}>
                   <input style={{ ...inp, flex: "1", minWidth: "150px", maxWidth: "200px" }} placeholder="Search records..." value={search} onChange={e => setSearch(e.target.value)} />
                   <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                    {[{ key: "all", label: "All" }, { key: "home", label: "🏠 Home" }, { key: "sparrow", label: "🍷 Sparrow" }, { key: "recent", label: "🎵 Played" }].map(f => (
+                    {[{ key: "all", label: "All" }, { key: "home", label: "🏠 Home" }, { key: "sparrow", label: "🍷 Sparrow" }, { key: "played", label: "🎵 Played" }, { key: "unplayed", label: "🆕 Never Played" }, { key: "recent", label: "📅 Recent" }, { key: "wishlist", label: "⭐ Wishlist" }].map(f => (
                       <button key={f.key} onClick={() => setFilter(f.key)} style={{ ...b(filter === f.key ? "#c9a96e" : "#1a1a1a", filter === f.key ? "#1a1a1a" : "#555"), border: `1px solid ${filter === f.key ? "#c9a96e" : "#252525"}`, fontSize: "11px", padding: "6px 10px" }}>{f.label}</button>
                     ))}
                   </div>
+                </div>
+                {/* Advanced filters: Genre, Decade, Owner */}
+                <div style={{ display: "flex", gap: "8px", marginBottom: "16px", flexWrap: "wrap", alignItems: "center" }}>
+                  <select value={genreFilter} onChange={e => setGenreFilter(e.target.value)} style={{ ...inp, flex: "unset", width: "auto", minWidth: "120px", fontSize: "12px", padding: "7px 10px", appearance: "auto" }}>
+                    <option value="">All Genres</option>
+                    {allGenres.map(g => <option key={g} value={g}>{g}</option>)}
+                  </select>
+                  <select value={decadeFilter} onChange={e => setDecadeFilter(e.target.value)} style={{ ...inp, flex: "unset", width: "auto", minWidth: "110px", fontSize: "12px", padding: "7px 10px", appearance: "auto" }}>
+                    <option value="">All Decades</option>
+                    {allDecades.map(d => <option key={d} value={d}>{d}s</option>)}
+                  </select>
+                  <select value={ownerFilter} onChange={e => setOwnerFilter(e.target.value)} style={{ ...inp, flex: "unset", width: "auto", minWidth: "120px", fontSize: "12px", padding: "7px 10px", appearance: "auto" }}>
+                    <option value="">All Owners</option>
+                    {profiles.map(p => <option key={p.id} value={p.id}>{p.display_name}</option>)}
+                  </select>
+                  {(genreFilter || decadeFilter || ownerFilter) && (
+                    <button onClick={clearFilters} style={{ ...b("#2a1818", "#d5a8a8"), fontSize: "11px", padding: "7px 10px", border: "1px solid #3a2525" }}>✕ Clear</button>
+                  )}
                 </div>
                 {(() => {
                   // Group filtered copies by album (title+artist)
